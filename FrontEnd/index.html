@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IG Scraper</title>
+  <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" rel="stylesheet">
+  <link href="./Igstyle.css" rel="stylesheet">
+  <link href="./bootstrap.css" rel="stylesheet">
+  <script src="./bootstrap.js"></script>
+  <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+
+  <!-- 引入 Vue 3 的 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/6.0.1/signalr.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
+
+  <style>
+    .vertical-center {
+      min-height: 100%;
+      /* Fallback for browsers do NOT support vh unit */
+      min-height: 100vh;
+      /* These two lines are counted as one :-)       */
+
+      display: flex;
+      align-items: center;
+    }
+  </style>
+</head>
+
+<body>
+
+
+
+  <div id="app">
+    <!-- Login Success to Main Page -->
+    <div v-if="isLogin">
+      <section class="main">
+        <div class="wrapper">
+          <div class="left-col">
+            <div class="post">
+              <div style="width: 100%;">
+                <canvas id="addChart"></canvas>
+              </div>
+              <div style="width: 100%;">
+                <canvas id="deleteChart"></canvas>
+              </div>
+              <div style="width: 100%;">
+                <canvas id="addChart2"></canvas>
+              </div>
+              <div style="width: 100%;">
+                <canvas id="deleteChart2"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="right-col">
+            <p class="suggestion-text">Notification</p>
+            <div class="profile-card" style="background-color: rgba(39, 245, 88, 0.8);"
+              :class="{flyin: !user.IsRemove, flyout: user.IsRemove}" v-for="(user, index) in socket_newfollowing"
+              :key="user.User.Username">
+              <div class="profile-pic">
+                <img :src="user.User.Picture" alt="">
+              </div>
+              <div>
+                <p class="username">{{ user.User.Username }}</p>
+                <p class="sub-text">{{ user.User.FullName }}</p>
+              </div>
+              <button class="action-btn" @click="removeUser(index, 0)">Remove</button>
+            </div>
+            <div class="profile-card" style="background-color: rgba(230, 5, 26, 0.8);"
+              :class="{flyin: !user.IsRemove, flyout: user.IsRemove}" v-for="(user, index) in socket_unfollowing"
+              :key="user.User.Username">
+              <div class="profile-pic">
+                <img :src="user.User.Picture" alt="">
+              </div>
+              <div>
+                <p class="username">{{ user.User.Username }}</p>
+                <p class="sub-text">{{ user.User.FullName }}</p>
+              </div>
+              <button class="action-btn" @click="removeUser(index, 1)">Remove</button>
+            </div>
+            <div class="profile-card" style="background-color: rgba(94, 197, 50, 1);"
+              :class="{flyin: !user.IsRemove, flyout: user.IsRemove}" v-for="(user, index) in socket_newfollowed"
+              :key="user.User.Username">
+              <div class="profile-pic">
+                <img :src="user.User.Picture" alt="">
+              </div>
+              <div>
+                <p class="username">{{ user.User.Username }}</p>
+                <p class="sub-text">{{ user.User.FullName }}</p>
+              </div>
+              <button class="action-btn" @click="removeUser(index, 2)">Remove</button>
+            </div>
+            <div class="profile-card" style="background-color: rgba(255, 0, 0, 1);"
+              :class="{flyin: !user.IsRemove, flyout: user.IsRemove}" v-for="(user, index) in socket_unfollowed"
+              :key="user.User.Username">
+              <div class="profile-pic">
+                <img :src="user.User.Picture" alt="">
+              </div>
+              <div>
+                <p class="username">{{ user.User.Username }}</p>
+                <p class="sub-text">{{ user.User.FullName }}</p>
+              </div>
+              <button class="action-btn" @click="removeUser(index, 3)">Remove</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Login Page -->
+    <div v-else>
+      <div class="vertical-center">
+        <div class="container mt-5">
+          <div class="row justify-content-center">
+            <div class="col-md-6">
+              <h2 class="text-center mb-4"> Service Portal</h2>
+              <div class="form-group">
+                <label for="email">Sessionid <p v-if="loginErrMsg" style="color: red;">{{ loginErrMsg }}</p></label>
+                <input type="text" class="form-control" @keyup.enter="login" placeholder="Please Enter SessionId..."
+                  v-model="sessionid">
+              </div>
+              <button class="btn btn-primary btn-block" @click="login">Login/Register</button>
+              <div v-if="isLoading" class="text-center mt-2">
+                <div class="spinner-border" role="status">
+                  <span class="visually-hidden">Loading...</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+
+
+  <script>
+    const { createApp, ref, computed, watch } = Vue;
+    const apiUrl = ref('https://localhost:7119');
+
+
+    const isLoading = ref(false);
+    const token = ref('');
+    const isLogin = ref(false);
+    const sessionid = ref('');
+    const loginErrMsg = ref('');
+    const socket_unfollowed = ref([]);
+    const socket_newfollowed = ref([]);
+    const socket_unfollowing = ref([]);
+    const socket_newfollowing = ref([]);
+
+    const followingData = ref([]);
+    const followerData = ref([]);
+
+    // 分組資料
+    const groupedFolloingData = computed({
+      get: () => {
+        let group = followingData.value.reduce((result, item) => {
+          const key = item.Status === '新增追蹤' ? 'add' : 'delete';
+          const datetime = item.DateTime.split(':')[0] + '時'; // 提取小時部分
+
+          if (!result[key]) {
+            result[key] = {};
+          }
+
+          if (!result[key][datetime]) {
+            result[key][datetime] = 1;
+          } else {
+            result[key][datetime]++;
+          }
+
+          return result;
+        }, {});
+
+        return group;
+      }
+    });
+
+    const groupedFollowerData = computed({
+      get: () => {
+        let group = followerData.value.reduce((result, item) => {
+          const key = item.Status === '新增粉絲' ? 'add' : 'delete';
+          const datetime = item.DateTime.split(':')[0] + '時'; // 提取小時部分
+
+          if (!result[key]) {
+            result[key] = {};
+          }
+
+          if (!result[key][datetime]) {
+            result[key][datetime] = 1;
+          } else {
+            result[key][datetime]++;
+          }
+
+          return result;
+        }, {});
+
+        return group;
+      }
+    });
+
+    // 製作圖表
+    function createChart(data, containerId, label, rgba) {
+      const ctx = document.getElementById(containerId).getContext('2d');
+
+      // 檢查畫布上是否已經存在圖表，如果是，銷毀它
+      const existingChart = Chart.getChart(ctx);
+      if (existingChart) {
+        existingChart.destroy();
+      }
+
+      const chart = new Chart(ctx, {
+        type: 'line', // 改用折線圖
+        data: {
+          labels: Object.keys(data),
+          datasets: [{
+            label,
+            data: Object.values(data),
+            fill: false,
+            borderColor: `rgba(${rgba[0]}, ${rgba[1]}, ${rgba[2]}, ${rgba[3]})`,
+            borderWidth: 2,
+            pointRadius: 5,
+            pointBackgroundColor: `rgba(${rgba[0]}, ${rgba[1]}, ${rgba[2]}, ${rgba[3]})`,
+          }]
+        },
+        options: {
+          scales: {
+            y: {
+              beginAtZero: true,
+              stepSize: 1,
+            },
+            xAxes: [{
+                ticks: {
+                    max: 3, // 设置最大显示的x轴项数
+                    beginAtZero: true
+                }
+            }]
+          },
+          plugins: {
+            zoom: {
+              zoom: {
+                // 初始缩放级别
+                enabled: true,
+                drag: true,
+                mode: 'x'
+              }
+            }
+          }
+        }
+      });
+    };
+
+    // 監視變化，重新繪製圖表
+    watch(groupedFolloingData, (newData) => {
+      createChart(newData.add, 'addChart', '新增追蹤', [39, 245, 88, 0.8]);
+      createChart(newData.delete, 'deleteChart', '刪除追蹤', [230, 5, 26, 0.8]);
+    });
+
+    watch(groupedFollowerData, (newData) => {
+      createChart(newData.add, 'addChart2', '新增粉絲', [94, 197, 50, 1]);
+      createChart(newData.delete, 'deleteChart2', '粉絲退追', [255, 0, 0, 1]);
+    });
+
+
+    const connection = new signalR.HubConnectionBuilder()
+      .withUrl(`${apiUrl.value}/BroadcastHub`, { accessTokenFactory: () => token.value })
+      .withAutomaticReconnect()
+      .configureLogging(signalR.LogLevel.Information)
+      .build();
+
+    // 在頁面關閉時觸發的事件
+    window.addEventListener('beforeunload', () => {
+      // 關閉 SignalR 連線
+      connection.stop()
+        .then(() => {
+          console.log("SignalR connection closed.");
+        })
+        .catch(err => {
+          console.error("Error closing SignalR connection:", err);
+        });
+    });
+
+    function removeUser(index, target) {
+      let removedUser;
+      switch (target) {
+        case 0:
+          removedUser = this.socket_newfollowing[index];
+          removedUser.IsRemove = true;
+          setTimeout(() => {
+            this.socket_newfollowing.splice(index, 1);
+          }, 1000); // 與CSS中動畫時間保持一致
+          break;
+
+        case 1:
+          removedUser = this.socket_unfollowing[index];
+          removedUser.IsRemove = true;
+          setTimeout(() => {
+            this.socket_unfollowing.splice(index, 1);
+          }, 1000); // 與CSS中動畫時間保持一致
+          break;
+
+        case 2:
+          removedUser = this.socket_newfollowed[index];
+          removedUser.IsRemove = true;
+          setTimeout(() => {
+            this.socket_newfollowed.splice(index, 1);
+          }, 1000); // 與CSS中動畫時間保持一致
+          break;
+
+        case 3:
+          removedUser = this.socket_unfollowed[index];
+          removedUser.IsRemove = true;
+          setTimeout(() => {
+            this.socket_unfollowed.splice(index, 1);
+          }, 1000); // 與CSS中動畫時間保持一致
+          break;
+      }
+    }
+
+    async function getPicture(profilePicUrl) {
+      let obj = await fetchApi(`${apiUrl.value}/api/Binary/GetPictureBase64?url=${encodeURIComponent(profilePicUrl)}`, 'GET');
+      return 'data:image/jpg;base64, ' + obj.content;
+    }
+
+    connection.on("Unfollowed", async (message) => {
+      let array = await Promise.all(
+        JSON.parse(message).map(async element => {
+          let base64 = await getPicture(element.ProfilePicUrl);
+          return {
+            IsRemove: false,
+            DateTime: getToday(),
+            Status: '粉絲退追',
+            User: {
+              Picture: base64,
+              Username: element.Username,
+              FullName: element.FullName
+            }
+          };
+        })
+      );
+
+      followerData.value = [...followerData.value, ...array];
+      socket_unfollowed.value = [...socket_unfollowed.value, ...array];
+    });
+
+    connection.on("Newfollowed", async (message) => {
+      let array = await Promise.all(
+        JSON.parse(message).map(async element => {
+          let base64 = await getPicture(element.ProfilePicUrl);
+          return {
+            IsRemove: false,
+            DateTime: getToday(),
+            Status: '新增粉絲',
+            User: {
+              Picture: base64,
+              Username: element.Username,
+              FullName: element.FullName
+            }
+          };
+        })
+      );
+
+      followerData.value = [...followerData.value, ...array];
+      socket_newfollowed.value = [...socket_newfollowed.value, ...array];
+    });
+
+    connection.on("Unfollowing", async (message) => {
+      let array = await Promise.all(
+        JSON.parse(message).map(async element => {
+          let base64 = await getPicture(element.ProfilePicUrl);
+          return {
+            IsRemove: false,
+            DateTime: getToday(),
+            Status: '刪除追蹤',
+            User: {
+              Picture: base64,
+              Username: element.Username,
+              FullName: element.FullName
+            }
+          };
+        })
+      );
+
+      followingData.value = [...followingData.value, ...array];
+      socket_unfollowing.value = [...socket_unfollowing.value, ...array];
+    });
+
+    connection.on("Newfollowing", async (message) => {
+      let array = await Promise.all(
+        JSON.parse(message).map(async element => {
+          let base64 = await getPicture(element.ProfilePicUrl);
+          return {
+            IsRemove: false,
+            DateTime: getToday(),
+            Status: '新增追蹤',
+            User: {
+              Picture: base64,
+              Username: element.Username,
+              FullName: element.FullName
+            }
+          };
+        })
+      );
+
+      followingData.value = [...followingData.value, ...array];
+      socket_newfollowing.value = [...socket_newfollowing.value, ...array];
+    });
+
+    connection.on("Init", (message) => {
+      console.log(message);
+    });
+
+    async function fetchApi(url, method, body = null) {
+      // option sample
+      // {
+      //     method: 'POST',
+      //     body: JSON.stringify(data), // data can be `string` or {object}!
+      //     headers: new Headers({
+      //         'Content-Type': 'application/json',
+      //         'Authorization': 'Bearer ' + token
+      //     })
+      // }
+
+      let option = {
+        method: method,
+        headers: new Headers({
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token.value
+        })
+      };
+
+      if (method !== 'GET' && body) {
+        option.body = JSON.stringify(body);
+      }
+
+      let isSuccess = true;
+      let jsonString = await fetch(url, option)
+        .then(function (response) {
+          if (response.status == 200) {
+            return response.json();
+          }
+          else if (response.status == 401) {
+            return response.json();
+          }
+          else {
+            isSuccess = false;
+            return response.json();
+          }
+        })
+        .then(function (result) {
+          if (isSuccess)
+            return result;
+          else
+            return result.message;
+        })
+        .catch(error => { console.error('Error:', error); return 'Request Failed' });
+
+      return jsonString;
+    }
+
+    async function login() {
+      isLoading.value = true;
+      if (!sessionid.value) {
+        loginErrMsg.value = '請輸入SessionId';
+        isLoading.value = false;
+        return;
+      }
+
+      let body = {
+        sessionid: sessionid.value
+      };
+
+      let result = await fetchApi(`${apiUrl.value}/api/Login/GetUserData`, 'POST', body);
+      token.value = result['token'];
+
+      if (token.value) {
+        isLogin.value = true;
+        setCookie('token', token.value, 1);
+        getFollow();
+        loginErrMsg.value = '';
+      } else {
+        loginErrMsg.value = result;
+      }
+      isLoading.value = false;
+    }
+
+    function startSocketConnection() {
+      if (!token.value) {
+        setTimeout(startSocketConnection, 5000);
+        return;
+      }
+
+      try {
+        connection.start();
+        console.log("SignalR Connected.");
+      } catch (err) {
+        console.log(err);
+        setTimeout(startSocketConnection, 5000);
+      }
+
+    }
+
+    // 设置cookie
+    function setCookie(name, value, days) {
+      const expirationDate = new Date();
+      expirationDate.setDate(expirationDate.getDate() + days);
+      const cookieString = `${name}=${value}; expires=${expirationDate.toUTCString()}; path=/`;
+      document.cookie = cookieString;
+    }
+
+    // 读取cookie
+    function getCookie(name) {
+      const cookies = document.cookie.split('; ');
+      for (const cookie of cookies) {
+        const [cookieName, cookieValue] = cookie.split('=');
+        if (cookieName === name) {
+          return cookieValue;
+        }
+      }
+      return null;
+    }
+
+    async function getFollow() {
+      let following = await fetchApi(`${apiUrl.value}/api/Scraper/GetFollowing`, 'GET');
+      let follower = await fetchApi(`${apiUrl.value}/api/Scraper/GetFollower`, 'GET');
+
+      followingData.value = following;
+      followerData.value = follower;
+    }
+
+    function getToday() {
+      const currentDate = new Date();
+
+      // 取得年、月、日
+      const year = currentDate.getFullYear();
+      const month = (currentDate.getMonth() + 1).toString();
+      const day = currentDate.getDate().toString();
+
+      // 取得時、分、秒
+      let hours = currentDate.getHours().toString().padStart(2, '0');
+      const minutes = currentDate.getMinutes().toString().padStart(2, '0');
+      const seconds = currentDate.getSeconds().toString().padStart(2, '0');
+
+      // 設定上午或下午
+      const period = hours >= 12 ? '下午' : '上午';
+      hours = hours % 12 || 12; // 轉換為12小時制
+      hours = hours.toString().padStart(2, '0');
+
+      // 格式化時間
+      const formattedTime = `${year}/${month}/${day} ${period} ${hours}:${minutes}:${seconds}`;
+
+      return formattedTime;
+    }
+
+    createApp({
+      setup() {
+        //以下return變數
+        return {
+          apiUrl,
+          token,
+          isLoading,
+          isLogin,
+          sessionid,
+          loginErrMsg,
+          socket_unfollowed,
+          socket_newfollowed,
+          socket_unfollowing,
+          socket_newfollowing,
+          followingData,
+          followerData,
+          groupedFolloingData,
+          groupedFollowerData,
+          fetchApi,
+          setCookie,
+          getCookie,
+          login,
+          startSocketConnection,
+          getPicture,
+          removeUser,
+          getFollow,
+          getToday,
+          createChart
+        }
+      },
+      async mounted() {
+        startSocketConnection();
+        token.value = getCookie('token');
+        let obj = await fetchApi(`${apiUrl.value}/api/Login/ChangeToken`, 'GET');
+
+        if (obj.token) {
+          token.value = obj.token;
+          setCookie('token', obj.token, 1);
+          isLogin.value = true;
+          getFollow();
+        }
+      }
+    }).mount('#app')
+
+  </script>
+
+</body>
+
+</html>
